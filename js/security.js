@@ -188,7 +188,12 @@ export async function enableBiometric() {
       rp: { name: 'Overall Finanças', id: location.hostname },
       user: { id: userId, name: 'usuario-local', displayName: 'Usuário' },
       pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
-      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'preferred' },
+      // residentKey "discouraged": credencial presa a este aparelho, não vira
+      // chave de acesso sincronizada no iCloud. Isso evita a tela extra de
+      // "Iniciar Sessão" do iOS antes do Face ID — o app já sabe qual
+      // credencial usar (allowCredentials no desbloqueio), não precisa que o
+      // sistema pergunte "qual conta". Resultado: Face ID direto ao abrir.
+      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' },
       timeout: 60000,
       attestation: 'none'
     }
