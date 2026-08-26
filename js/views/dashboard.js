@@ -105,6 +105,14 @@ export async function render(root, ctx) {
         ]),
         el('span.v', { text: `${money(c.value)}` })
       ]));
+      // "Cartão" mistura assinatura fixa (Netflix etc.) com compra/parcela avulsa.
+      // Mostra a divisão pra não parecer que a despesa fixa "sumiu".
+      if (c.label === 'Cartão' && t.cardSubscriptions > 0 && t.cardPurchases > 0) {
+        compCard.append(el('div.tiny.muted', {
+          style: { padding: '0 0 10px 22px', marginTop: '-6px' },
+          text: `${money(t.cardSubscriptions)} em assinaturas fixas · ${money(t.cardPurchases)} em compras/parcelas`
+        }));
+      }
     }
   }
   root.append(section('Composição dos gastos', compCard));

@@ -1208,6 +1208,8 @@ export async function getMonthData(month) {
       fixed: fixedTotal,
       variable: variableTotal,
       card: cardTotal,
+      cardSubscriptions: sum(fixedOnCard, (r) => r.amount), // parte do "card" que é assinatura fixa
+      cardPurchases: sum(validInst, (r) => r.amount),        // parte do "card" que é compra/parcela
       debts: debtTotal,
       paid: alreadyPaid,
       pending,
