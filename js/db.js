@@ -9,7 +9,7 @@ import { uid, setLogSink, log, logError } from './core.js';
 /* O nome pode ser sobrescrito antes do carregamento dos módulos para permitir
    uma base isolada nos testes (ver testes.html). Em uso normal é sempre o padrão. */
 export const DB_NAME = globalThis.__OVERALL_DB_NAME__ || 'overall_financas';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 
 /** Stores que contêm dados do usuário (entram no backup). */
 export const DATA_STORES = [
@@ -104,6 +104,12 @@ function migrate(db, tx, oldVersion) {
     index(tx.objectStore('expenses'), 'byStatus', 'status');
     index(tx.objectStore('installments'), 'byStatus', 'status');
     index(tx.objectStore('debts'), 'byStatus', 'status');
+  }
+
+  if (oldVersion < 3) {
+    // Despesas fixas agora podem estar vinculadas a um cartão (assinaturas
+    // cobradas na fatura, ex.: Netflix). Índice para consultar rápido por cartão.
+    index(tx.objectStore('expenses'), 'byCardId', 'cardId');
   }
 }
 

@@ -405,6 +405,8 @@ export async function incomeForm(existing = null, defaults = {}) {
 
 export async function recurringForm(existing = null, month = currentMonth()) {
   const cats = await categoryOptions('expense');
+  const cards = await cardOptions();
+  const cardSelectOptions = [{ value: '', label: 'Nenhum (não é no cartão)' }, ...cards];
   const isEdit = !!existing;
 
   return openForm({
@@ -412,13 +414,18 @@ export async function recurringForm(existing = null, month = currentMonth()) {
     submitLabel: isEdit ? 'Salvar' : 'Criar despesa fixa',
     initial: existing ? {
       name: existing.name, amount: existing.amount, dueDay: existing.dueDay,
-      categoryId: existing.categoryId || '', note: existing.note || '', startMonth: existing.startMonth
-    } : { dueDay: 5, startMonth: month, categoryId: '' },
+      categoryId: existing.categoryId || '', cardId: existing.cardId || '',
+      note: existing.note || '', startMonth: existing.startMonth
+    } : { dueDay: 5, startMonth: month, categoryId: '', cardId: '' },
     fields: [
       { name: 'amount', type: 'money', label: 'Valor mensal', required: true, autofocus: !isEdit },
-      { name: 'name', type: 'text', label: 'Nome', required: true, placeholder: 'Ex.: Internet, academia, aluguel' },
+      { name: 'name', type: 'text', label: 'Nome', required: true, placeholder: 'Ex.: Internet, academia, Netflix' },
       { name: 'dueDay', type: 'day', label: 'Dia do vencimento', required: true, hint: 'Se o mês não tiver esse dia, usamos o último dia disponível.' },
       { name: 'categoryId', type: 'select', label: 'Categoria', options: cats },
+      cards.length ? {
+        name: 'cardId', type: 'select', label: 'Cobrada em qual cartão?', options: cardSelectOptions,
+        hint: 'Se marcar um cartão, o valor entra na fatura e no limite dele automaticamente, todo mês.'
+      } : null,
       !isEdit ? { name: 'startMonth', type: 'month', label: 'A partir de', required: true } : null,
       { name: 'note', type: 'textarea', label: 'Observação', placeholder: 'Opcional' }
     ].filter(Boolean),
@@ -426,7 +433,8 @@ export async function recurringForm(existing = null, month = currentMonth()) {
       if (!isEdit) {
         await repo.createRecurring({
           name: v.name, amount: v.amount, dueDay: v.dueDay,
-          categoryId: v.categoryId || null, note: v.note, startMonth: v.startMonth
+          categoryId: v.categoryId || null, cardId: v.cardId || null,
+          note: v.note, startMonth: v.startMonth
         }, { force });
         toastOk('Despesa fixa criada');
         return true;
@@ -443,7 +451,7 @@ export async function recurringForm(existing = null, month = currentMonth()) {
       if (!scope) return false;
       await repo.updateRecurring(existing.id, {
         name: v.name, amount: v.amount, dueDay: v.dueDay,
-        categoryId: v.categoryId || null, note: v.note
+        categoryId: v.categoryId || null, cardId: v.cardId || null, note: v.note
       }, scope, month);
       toastOk(scope === 'occurrence' ? 'Alterado somente neste mês' : 'Alterado deste mês em diante');
       return true;

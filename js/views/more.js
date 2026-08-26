@@ -241,6 +241,8 @@ async function renderGoals(root, ctx) {
 
 async function renderRecurring(root, ctx) {
   const list = await repo.listRecurring();
+  const cards = await repo.listCards();
+  const cardName = (id) => (cards.find((c) => c.id === id) || {}).name;
   const month = ctx.month;
 
   if (!list.length) {
@@ -269,9 +271,9 @@ async function renderRecurring(root, ctx) {
     const l = el('div.list.mt-3');
     for (const r of active) {
       l.append(listItem({
-        icon: '📌',
+        icon: r.cardId ? '💳' : '📌',
         title: r.name,
-        subtitle: `Vence dia ${r.dueDay}${r.endMonth ? ` · até ${monthLabel(r.endMonth)}` : ''}`,
+        subtitle: `Vence dia ${r.dueDay}${r.cardId ? ` · ${cardName(r.cardId) || 'cartão'}` : ''}${r.endMonth ? ` · até ${monthLabel(r.endMonth)}` : ''}`,
         amount: r.amount,
         onClick: () => recurringForm(r, month)
       }));

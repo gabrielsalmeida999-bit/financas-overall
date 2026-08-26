@@ -100,11 +100,13 @@ const SCHEMA = {
       if (!isValidDate(r.date)) err(`despesa "${r.name}" com data inválida`);
       if (r.status && !['pending', 'paid', 'cancelled'].includes(r.status)) err(`despesa "${r.name}" com status inválido`);
       if (!isNullableStr(r.recurringId)) err(`despesa "${r.name}" com vínculo inválido`);
+      if (!isNullableStr(r.cardId)) err(`despesa "${r.name}" com vínculo de cartão inválido`);
     },
     fix: (r) => {
       if (!r.month) r.month = String(r.date).slice(0, 7);
       if (!r.kind) r.kind = r.recurringId ? 'fixed' : 'variable';
       if (!r.status) r.status = 'paid';
+      if (r.cardId === undefined) r.cardId = null;
     }
   },
   recurringExpenses: {
@@ -115,7 +117,9 @@ const SCHEMA = {
       if (r.endMonth && !isValidMonth(r.endMonth)) err(`despesa fixa "${r.name}" com mês final inválido`);
       const d = Number(r.dueDay);
       if (!Number.isInteger(d) || d < 1 || d > 31) err(`despesa fixa "${r.name}" com dia de vencimento inválido`);
-    }
+      if (!isNullableStr(r.cardId)) err(`despesa fixa "${r.name}" com vínculo de cartão inválido`);
+    },
+    fix: (r) => { if (r.cardId === undefined) r.cardId = null; }
   },
   creditCards: {
     check: (r, err) => {
@@ -312,9 +316,13 @@ export function validateBackup(raw) {
       e.recurringId = null; e.kind = 'variable';
     }
     if (e.categoryId && !categoryIds.has(e.categoryId)) { warn('Uma despesa aponta para categoria inexistente.'); e.categoryId = null; }
+    if (e.cardId && !cardIds.has(e.cardId)) { warn('Uma despesa fixa aponta para um cartão inexistente.'); e.cardId = null; }
   }
   for (const r of clean.incomes) {
     if (r.categoryId && !categoryIds.has(r.categoryId)) { warn('Uma receita aponta para categoria inexistente.'); r.categoryId = null; }
+  }
+  for (const r of clean.recurringExpenses) {
+    if (r.cardId && !cardIds.has(r.cardId)) { warn('Uma despesa fixa aponta para um cartão inexistente.'); r.cardId = null; }
   }
 
   if (errors.length) return fail(errors, warnings);

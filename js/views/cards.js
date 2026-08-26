@@ -160,17 +160,18 @@ async function openInvoice(card, month, ctx) {
       ]));
     } else {
       const list = el('div.list.mt-3');
-      for (const inst of invoice.items) {
+      for (const item of invoice.items) {
         list.append(listItem({
-          icon: inst.status === STATUS.PAID ? '✓' : '💳',
-          title: `${inst.name}`,
-          subtitle: `Parcela ${inst.number} de ${inst.total} · vence ${formatDate(inst.dueDate)}`,
-          amount: inst.amount,
-          badge: statusBadge(inst.status),
+          icon: item.status === STATUS.PAID ? '✓' : (item.kind === 'fixed' ? '📌' : '💳'),
+          title: item.name,
+          subtitle: `${item.subtitle} · vence ${formatDate(item.dueDate)}`,
+          amount: item.amount,
+          badge: statusBadge(item.status),
           onClick: async () => {
-            const next = inst.status === STATUS.PAID ? STATUS.PENDING : STATUS.PAID;
-            await repo.setInstallmentStatus(inst.id, next);
-            toastOk(next === STATUS.PAID ? 'Parcela paga' : 'Parcela reaberta');
+            const next = item.status === STATUS.PAID ? STATUS.PENDING : STATUS.PAID;
+            if (item.kind === 'fixed') await repo.setExpenseStatus(item.id, next);
+            else await repo.setInstallmentStatus(item.id, next);
+            toastOk(next === STATUS.PAID ? 'Marcada como paga' : 'Marcada como pendente');
             emit('data:changed');
             reload(m);
           },

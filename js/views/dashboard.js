@@ -117,7 +117,7 @@ export async function render(root, ctx) {
         el('span.v', { text: money(future.nextMonth) })
       ]),
       el('div.summary-line', {}, [
-        el('span.k', { text: 'Parcelas em aberto (12 meses)' }),
+        el('span.k', { text: 'Cartão em aberto (12 meses)' }),
         el('span.v', { text: money(future.installments) })
       ]),
       el('div.summary-line', {}, [

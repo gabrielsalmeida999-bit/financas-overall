@@ -412,6 +412,7 @@ export async function createRecurring(data, opts = {}) {
     name, amount, dueDay, startMonth,
     endMonth: data.endMonth || null,
     categoryId: data.categoryId || null,
+    cardId: data.cardId || null,
     note: optText(data.note),
     active: true,
     dedupeKey: key,
@@ -441,6 +442,7 @@ export async function updateRecurring(id, data, scope, month) {
     if (data.amount !== undefined) occ.amount = requireAmount(data.amount);
     if (data.dueDay !== undefined) occ.date = dateInMonth(month, data.dueDay);
     if (data.categoryId !== undefined) occ.categoryId = data.categoryId || null;
+    if (data.cardId !== undefined) occ.cardId = data.cardId || null;
     if (data.note !== undefined) occ.note = optText(data.note);
     occ.overridden = true; // não será sobrescrita por edições futuras do modelo
     await db.put('expenses', touch(occ));
@@ -452,6 +454,7 @@ export async function updateRecurring(id, data, scope, month) {
   if (data.amount !== undefined) rec.amount = requireAmount(data.amount);
   if (data.dueDay !== undefined) rec.dueDay = Math.min(Math.max(1, Math.floor(Number(data.dueDay) || 1)), 31);
   if (data.categoryId !== undefined) rec.categoryId = data.categoryId || null;
+  if (data.cardId !== undefined) rec.cardId = data.cardId || null;
   if (data.note !== undefined) rec.note = optText(data.note);
   if (data.endMonth !== undefined) rec.endMonth = data.endMonth || null;
   await db.put('recurringExpenses', touch(rec));
@@ -467,6 +470,7 @@ export async function updateRecurring(id, data, scope, month) {
         o.amount = rec.amount;
         o.date = dateInMonth(o.month, rec.dueDay);
         o.categoryId = rec.categoryId;
+        o.cardId = rec.cardId;
         o.updatedAt = nowTs();
         await reqp(s.expenses.put(o));
       }
@@ -553,6 +557,7 @@ export async function materializeMonth(month) {
         date,
         month,
         categoryId: r.categoryId || null,
+        cardId: r.cardId || null,
         paymentMethod: 'other',
         kind: 'fixed',
         status: STATUS.PENDING,
@@ -620,21 +625,28 @@ export async function cardUsage(cardId) {
   const insts = (await db.getAllByIndex('installments', 'byCard', cardId))
     .filter((i) => live(i) && i.status !== STATUS.CANCELLED);
   const open = insts.filter((i) => i.status === STATUS.PENDING);
+  const fixedOnCard = (await db.getAllByIndex('expenses', 'byCardId', cardId))
+    .filter((e) => live(e) && e.kind === 'fixed' && notCancelledExpense(e));
+  const openFixed = fixedOnCard.filter((e) => e.status === STATUS.PENDING);
   return {
     purchases: purchases.length,
     installments: insts.length,
     openInstallments: open.length,
-    committed: sum(open, (i) => i.amount)
+    committed: sum(open, (i) => i.amount) + sum(openFixed, (e) => e.amount)
   };
 }
+
+function notCancelledExpense(e) { return e.status !== STATUS.CANCELLED; }
 
 export async function deleteCard(cardId, mode) {
   const card = await db.get('creditCards', cardId);
   if (!card) return false;
   const purchases = (await db.getAllByIndex('creditPurchases', 'byCard', cardId)).filter(live);
   const insts = (await db.getAllByIndex('installments', 'byCard', cardId)).filter(live);
+  const recurringOnCard = (await db.getAll('recurringExpenses')).filter((r) => live(r) && r.cardId === cardId);
+  const occOnCard = (await db.getAllByIndex('expenses', 'byCardId', cardId)).filter(live);
 
-  await tx(['creditCards', 'creditPurchases', 'installments'], 'readwrite', async (s) => {
+  await tx(['creditCards', 'creditPurchases', 'installments', 'recurringExpenses', 'expenses'], 'readwrite', async (s) => {
     card.deletedAt = nowTs(); card.updatedAt = nowTs();
     await reqp(s.creditCards.put(card));
     if (mode === 'with-purchases') {
@@ -644,6 +656,9 @@ export async function deleteCard(cardId, mode) {
         i.deletedAt = nowTs(); i.updatedAt = nowTs(); await reqp(s.installments.put(i));
       }
     }
+    // Despesas fixas do cartão continuam existindo (viram "sem cartão"), nunca são apagadas.
+    for (const r of recurringOnCard) { r.cardId = null; r.updatedAt = nowTs(); await reqp(s.recurringExpenses.put(r)); }
+    for (const o of occOnCard) { o.cardId = null; o.updatedAt = nowTs(); await reqp(s.expenses.put(o)); }
   });
   logWarn('card.delete', { mode, purchases: purchases.length });
   return true;
@@ -870,29 +885,60 @@ export async function setInstallmentStatus(installmentId_, status) {
   return inst;
 }
 
-/** Marca todas as parcelas pendentes de um cartão no mês como pagas. */
+/** Marca todas as parcelas e despesas fixas pendentes de um cartão no mês como pagas. */
 export async function payCardInvoice(cardId, month) {
+  await materializeMonth(month);
   const insts = (await db.getAllByIndex('installments', 'byMonth', month))
     .filter((i) => live(i) && i.cardId === cardId && i.status === STATUS.PENDING);
-  if (!insts.length) return 0;
-  await tx('installments', 'readwrite', async (s) => {
+  const fixedOnCard = (await db.getAllByIndex('expenses', 'byMonth', month))
+    .filter((e) => live(e) && e.cardId === cardId && e.kind === 'fixed' && e.status === STATUS.PENDING);
+  if (!insts.length && !fixedOnCard.length) return 0;
+  await tx(['installments', 'expenses'], 'readwrite', async (s) => {
     for (const i of insts) {
       i.status = STATUS.PAID; i.paidAt = nowTs(); i.updatedAt = nowTs();
       await reqp(s.installments.put(i));
     }
+    for (const e of fixedOnCard) {
+      e.status = STATUS.PAID; e.paidAt = nowTs(); e.updatedAt = nowTs();
+      await reqp(s.expenses.put(e));
+    }
   });
-  log('card.invoice.paid', { month, count: insts.length });
-  return insts.length;
+  const count = insts.length + fixedOnCard.length;
+  log('card.invoice.paid', { month, count });
+  return count;
 }
 
+/**
+ * Fatura do cartão no mês: parcelas de compras + despesas fixas vinculadas
+ * ao cartão (assinaturas como Netflix, cobradas todo mês). Materializa o
+ * mês antes de consultar, então despesas fixas futuras já aparecem aqui
+ * mesmo sem o usuário ter aberto aquele mês no painel principal.
+ */
 export async function cardInvoice(cardId, month) {
+  await materializeMonth(month);
+
   const insts = (await db.getAllByIndex('installments', 'byMonth', month))
-    .filter((i) => live(i) && i.cardId === cardId && i.status !== STATUS.CANCELLED);
+    .filter((i) => live(i) && i.cardId === cardId && i.status !== STATUS.CANCELLED)
+    .map((i) => ({
+      kind: 'installment', id: i.id, name: i.name,
+      subtitle: `Parcela ${i.number} de ${i.total}`,
+      amount: i.amount, dueDate: i.dueDate, status: i.status, ref: i
+    }));
+
+  const fixedOnCard = (await db.getAllByIndex('expenses', 'byMonth', month))
+    .filter((e) => live(e) && e.cardId === cardId && e.kind === 'fixed' && e.status !== STATUS.CANCELLED)
+    .map((e) => ({
+      kind: 'fixed', id: e.id, name: e.name,
+      subtitle: 'Despesa fixa no cartão',
+      amount: e.amount, dueDate: e.date, status: e.status, ref: e
+    }));
+
+  const items = [...insts, ...fixedOnCard].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
   return {
-    items: insts.sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || '')),
-    total: sum(insts, (i) => i.amount),
-    pending: sum(insts.filter((i) => i.status === STATUS.PENDING), (i) => i.amount),
-    paid: sum(insts.filter((i) => i.status === STATUS.PAID), (i) => i.amount)
+    items,
+    total: sum(items, (i) => i.amount),
+    pending: sum(items.filter((i) => i.status === STATUS.PENDING), (i) => i.amount),
+    paid: sum(items.filter((i) => i.status === STATUS.PAID), (i) => i.amount)
   };
 }
 
@@ -1125,14 +1171,18 @@ export async function getMonthData(month) {
   ]);
 
   const validIncomes = incomes.filter(notCancelled);
-  const fixed = expenses.filter((e) => e.kind === 'fixed' && notCancelled(e));
+  const fixedAll = expenses.filter((e) => e.kind === 'fixed' && notCancelled(e));
+  // Despesa fixa vinculada a um cartão (ex.: assinatura cobrada na fatura) conta
+  // como gasto de cartão, não como "fixas" — evita contar o mesmo dinheiro duas vezes.
+  const fixed = fixedAll.filter((e) => !e.cardId);
+  const fixedOnCard = fixedAll.filter((e) => e.cardId);
   const variable = expenses.filter((e) => e.kind !== 'fixed' && notCancelled(e));
   const validInst = installments.filter(notCancelled);
 
   const income = sum(validIncomes, (r) => r.amount);
   const fixedTotal = sum(fixed, (r) => r.amount);
   const variableTotal = sum(variable, (r) => r.amount);
-  const cardTotal = sum(validInst, (r) => r.amount);
+  const cardTotal = sum(validInst, (r) => r.amount) + sum(fixedOnCard, (r) => r.amount);
   const debtTotal = sum(payments, (r) => r.amount);
 
   const spent = fixedTotal + variableTotal + cardTotal + debtTotal;
@@ -1177,6 +1227,7 @@ export async function futureCommitted(fromMonth, monthsAhead = 12) {
 
   const recs = (await db.getAll('recurringExpenses')).filter(live);
   let recurringTotal = 0;
+  let recurringOnCardTotal = 0;
   const byMonth = new Map();
 
   for (let k = 1; k <= monthsAhead; k++) {
@@ -1186,13 +1237,18 @@ export async function futureCommitted(fromMonth, monthsAhead = 12) {
     recurringTotal += t;
     byMonth.set(m, t);
   }
+  // Despesa fixa no cartão conta como comprometido do cartão, não "despesas fixas".
+  for (let k = 1; k <= monthsAhead; k++) {
+    const m = addMonths(fromMonth, k);
+    for (const r of recs) if (r.cardId && recurringActiveIn(r, m)) recurringOnCardTotal += toInt(r.amount);
+  }
   for (const i of insts) byMonth.set(i.month, (byMonth.get(i.month) || 0) + toInt(i.amount));
 
   const instTotal = sum(insts, (i) => i.amount);
   return {
     total: instTotal + recurringTotal,
-    installments: instTotal,
-    recurring: recurringTotal,
+    installments: instTotal + recurringOnCardTotal,
+    recurring: recurringTotal - recurringOnCardTotal,
     byMonth: [...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0])),
     nextMonth: byMonth.get(startNext) || 0
   };
@@ -1265,7 +1321,8 @@ export async function monthlySeries(endMonth, months = 12) {
   for (const e of allExp) {
     if (!live(e) || !notCancelled(e) || !inRange(e.month)) continue;
     bump(e.month, 'expense', e.amount);
-    bump(e.month, e.kind === 'fixed' ? 'fixed' : 'variable', e.amount);
+    if (e.kind === 'fixed' && e.cardId) bump(e.month, 'card', e.amount);
+    else bump(e.month, e.kind === 'fixed' ? 'fixed' : 'variable', e.amount);
   }
   for (const i of allInst) {
     if (!live(i) || !notCancelled(i) || !inRange(i.month)) continue;

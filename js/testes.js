@@ -269,6 +269,54 @@ async function run() {
   const historico09 = (await repo.listExpenses('2026-09')).filter((e) => e.recurringId === rec.id);
   check('Histórico passado é preservado ao encerrar', historico09.length === 1);
 
+  /* ---------------------- Despesa fixa no cartão -------------------------- */
+  grupo('Despesa fixa vinculada ao cartão de crédito');
+
+  await limparBase();
+  const cardNF = await repo.createCard({ name: 'Cartão Assinaturas', limit: 200000, closingDay: 20, dueDay: 5 });
+  const netflix = await repo.createRecurring({
+    name: 'Netflix', amount: 4490, dueDay: 15, startMonth: '2026-08', cardId: cardNF.id
+  });
+  check('Despesa fixa aceita cardId', netflix.cardId === cardNF.id);
+
+  const invAgo = await repo.cardInvoice(cardNF.id, '2026-08');
+  check('Assinatura aparece na fatura do mês', invAgo.items.length === 1, `${invAgo.items.length} item(ns)`);
+  check('Valor da fatura reflete a assinatura', invAgo.total === 4490, String(invAgo.total));
+  check('Item da fatura é do tipo "fixed"', invAgo.items[0] && invAgo.items[0].kind === 'fixed');
+
+  const usageNF = await repo.cardUsage(cardNF.id);
+  check('Assinatura conta no comprometido do cartão', usageNF.committed === 4490, String(usageNF.committed));
+
+  const dataAgo = await repo.getMonthData('2026-08');
+  check('Assinatura entra no total "Cartão" do mês', dataAgo.totals.card === 4490, String(dataAgo.totals.card));
+  check('Assinatura NÃO entra no total "Fixas" (evita contar 2x)', dataAgo.totals.fixed === 0, String(dataAgo.totals.fixed));
+
+  // Fatura futura (mês nunca aberto) já projeta a assinatura, sem precisar materializar manualmente
+  const invFutura = await repo.cardInvoice(cardNF.id, '2026-11');
+  check('Fatura de mês futuro já mostra a assinatura', invFutura.total === 4490, String(invFutura.total));
+
+  // Pagar a fatura inteira marca a assinatura como paga também
+  const pagos = await repo.payCardInvoice(cardNF.id, '2026-08');
+  check('Pagar fatura inclui a despesa fixa do cartão', pagos === 1, String(pagos));
+  const invPaga = await repo.cardInvoice(cardNF.id, '2026-08');
+  check('Após pagar, fatura mostra tudo quitado', invPaga.pending === 0 && invPaga.paid === 4490);
+
+  // Editar "deste mês em diante" preserva o mês já pago
+  await repo.updateRecurring(netflix.id, { amount: 5490 }, 'future', '2026-09');
+  const invSetembro = await repo.cardInvoice(cardNF.id, '2026-09');
+  const invAgoDepois = await repo.cardInvoice(cardNF.id, '2026-08');
+  check('Edição futura atualiza meses seguintes', invSetembro.total === 5490, String(invSetembro.total));
+  check('Edição futura não mexe no mês já pago', invAgoDepois.total === 4490, String(invAgoDepois.total));
+
+  // Excluir o cartão preserva a despesa fixa, só desvincula
+  await repo.deleteCard(cardNF.id, 'keep');
+  const netflixSemCartao = (await repo.listRecurring()).find((r) => r.id === netflix.id);
+  check('Excluir cartão preserva a despesa fixa', !!netflixSemCartao);
+  check('Excluir cartão desvincula (cardId vira null)', netflixSemCartao.cardId === null);
+  const dataAgoSemCartao = await repo.getMonthData('2026-08');
+  check('Sem cartão, valor volta a contar como "Fixas"',
+    dataAgoSemCartao.totals.fixed === 4490, String(dataAgoSemCartao.totals.fixed));
+
   /* -------------------------------- Dívidas ------------------------------ */
   grupo('Dívidas e pagamentos');
 
