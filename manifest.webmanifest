@@ -1,0 +1,25 @@
+{
+  "name": "Overall Finanças",
+  "short_name": "Finanças",
+  "description": "Controle financeiro pessoal offline. Seus dados ficam neste dispositivo.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "id": "overall-financas",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "categories": ["finance", "productivity", "utilities"],
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Nova despesa", "short_name": "Despesa", "url": "./index.html?acao=despesa" },
+    { "name": "Nova receita", "short_name": "Receita", "url": "./index.html?acao=receita" },
+    { "name": "Fazer backup", "short_name": "Backup", "url": "./index.html?acao=backup" }
+  ]
+}

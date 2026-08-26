@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Testes — Overall Finanças</title>
+<link rel="stylesheet" href="css/app.css">
+<style>
+  body{ padding:24px 16px 60px; }
+  .wrap{ max-width:760px; margin:0 auto; }
+  h1{ font-size:22px; font-weight:700; letter-spacing:-.5px; margin-bottom:4px; }
+  .sub{ color:var(--text-3); font-size:13.5px; margin-bottom:20px; }
+  .grp{ margin-top:22px; }
+  .grp h2{ font-size:13px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-3); margin-bottom:8px; }
+  .t{ display:flex; gap:10px; padding:7px 12px; border-radius:8px; font-size:13.5px; align-items:flex-start; }
+  .t.ok{ color:var(--text-2); }
+  .t.fail{ background:rgba(255,69,58,.12); color:var(--bad); }
+  .t .m{ flex:none; font-weight:700; width:16px; }
+  .t .d{ flex:1; }
+  .t .why{ display:block; color:var(--bad); font-size:12px; margin-top:2px; }
+  #summary{ position:sticky; top:0; background:var(--bg); padding:12px 0; z-index:5; }
+  .pill{ display:inline-block; padding:6px 14px; border-radius:999px; font-weight:650; font-size:14px; }
+  .pill.pass{ background:rgba(50,215,75,.16); color:var(--good); }
+  .pill.fail{ background:rgba(255,69,58,.16); color:var(--bad); }
+  .pill.run{ background:var(--card-2); color:var(--text-2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Suíte de testes</h1>
+  <div class="sub">
+    Executa em uma base isolada (<code>overall_financas_teste</code>). Seus dados reais não são tocados.
+  </div>
+  <div id="summary"><span class="pill run">Executando…</span></div>
+  <div id="out"></div>
+</div>
+
+<script>window.__OVERALL_DB_NAME__ = 'overall_financas_teste';</script>
+<script type="module" src="js/testes.js"></script>
+</body>
+</html>
