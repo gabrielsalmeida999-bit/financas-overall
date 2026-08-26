@@ -8,7 +8,7 @@ import {
 
 import {
   el, section, listItem, emptyState, statusBadge, sheet, toastOk,
-  confirm, segmented, chips, detailRow, emit
+  confirm, segmented, chips, detailRow, emit, once, summaryLine
 } from '../ui.js';
 
 import * as repo from '../repo.js';
@@ -96,6 +96,8 @@ export async function render(root, ctx) {
     });
 
     const cats = await repo.categoryMap();
+    const cardsList = await repo.listCards();
+    const cardMap = new Map(cardsList.map((c) => [c.id, c]));
     listWrap.replaceChildren();
 
     if (!rows.length) {
@@ -136,7 +138,81 @@ export async function render(root, ctx) {
       ]) : null
     ].filter(Boolean)));
 
-    const byDay = groupBy(rows, (r) => r.date);
+    /* Tudo que é do cartão (parcelas de compras + despesas fixas vinculadas)
+       fica agrupado por cartão, com botão para pagar a fatura inteira de uma vez. */
+    const cardGroups = new Map();
+    const otherRows = [];
+    for (const item of rows) {
+      const cardId = item.ref && item.ref.cardId;
+      if (cardId && cardMap.has(cardId)) {
+        if (!cardGroups.has(cardId)) cardGroups.set(cardId, []);
+        cardGroups.get(cardId).push(item);
+      } else {
+        otherRows.push(item);
+      }
+    }
+
+    if (cardGroups.size) {
+      listWrap.append(el('div.section-title.mt-4', { text: 'Cartões de crédito' }));
+    }
+
+    for (const [cardId, items] of cardGroups) {
+      const card = cardMap.get(cardId);
+      const sorted = [...items].sort((a, b) => a.date.localeCompare(b.date));
+      const pendingItems = sorted.filter((i) => i.status === STATUS.PENDING);
+      const pendingTotal = sum(pendingItems, (i) => i.amount);
+      const paidTotal = sum(sorted.filter((i) => i.status === STATUS.PAID), (i) => i.amount);
+
+      const list = el('div.list.mt-3');
+      for (const item of sorted) {
+        const cat = item.categoryId ? cats.get(item.categoryId) : null;
+        list.append(listItem({
+          icon: iconFor(item, cat),
+          iconColor: cat ? cat.color : null,
+          title: item.name,
+          subtitle: subtitleFor(item, cat),
+          amount: item.amount,
+          amountClass: 'out',
+          badge: item.status === STATUS.PENDING
+            ? statusBadge('pending', item.date < todayISO())
+            : null,
+          onClick: () => openDetail(item, ctx, month)
+        }));
+      }
+
+      listWrap.append(el('div.card.mt-3', {}, [
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, [
+          el('span', { text: '💳', style: { fontSize: '17px' } }),
+          el('span', { text: card.name, style: { fontWeight: '650', fontSize: '15px', flex: '1' } }),
+          el('span', { text: money(pendingTotal + paidTotal), style: { fontWeight: '650', fontSize: '15px' } })
+        ]),
+        paidTotal ? summaryLine('Já pago', paidTotal) : null,
+        pendingTotal ? summaryLine('Em aberto', pendingTotal) : null,
+        list,
+        pendingTotal > 0 ? el('button.btn.btn-primary.btn-block.mt-3', {
+          type: 'button',
+          text: `Pagar fatura (${money(pendingTotal)})`,
+          onclick: once(async () => {
+            const ok = await confirm({
+              title: 'Pagar fatura',
+              text: `Todas as ${pendingItems.length} despesa(s) em aberto de "${card.name}" neste mês serão marcadas como pagas.`,
+              okLabel: 'Confirmar pagamento'
+            });
+            if (!ok) return;
+            const n = await repo.payCardInvoice(cardId, month);
+            toastOk(`${n} despesa(s) marcadas como pagas`);
+            emit('data:changed');
+            paint();
+          })
+        }) : null
+      ].filter(Boolean)));
+    }
+
+    if (cardGroups.size && otherRows.length) {
+      listWrap.append(el('div.section-title.mt-4', { text: 'Outros lançamentos' }));
+    }
+
+    const byDay = groupBy(otherRows, (r) => r.date);
     for (const [date, items] of [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0]))) {
       listWrap.append(el('div.day-head', {
         text: `${formatDate(date)} · ${weekdayOf(date).replace('-feira', '')}`
