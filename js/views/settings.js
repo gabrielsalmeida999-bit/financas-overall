@@ -21,6 +21,7 @@ import {
 } from '../backup.js';
 import * as security from '../security.js';
 import { BACKUP_VERSION } from '../core.js';
+import { retroactivePurchaseForm } from '../forms.js';
 
 export async function render(root, ctx) {
   root.replaceChildren();
@@ -197,6 +198,17 @@ export async function render(root, ctx) {
     onClick: () => openWipe(ctx)
   }));
   root.append(section('Zona de risco', danger));
+
+  /* -------------------------------- Ferramentas ---------------------------- */
+  const tools = el('div.list');
+  tools.append(navRow('Cadastro de Despesas Retroativas', {
+    icon: '🗓',
+    onClick: async () => { await retroactivePurchaseForm(); ctx.refresh(); }
+  }));
+  root.append(section('Ferramentas', tools, null));
+  root.append(el('div.tiny.muted.mt-2', {
+    text: 'Para compras parceladas que já estavam em andamento antes de você começar a usar o app.'
+  }));
 
   /* --------------------------------- Sobre -------------------------------- */
   const about = el('div.card', {}, [

@@ -138,7 +138,12 @@ const SCHEMA = {
       if (!Number.isInteger(n) || n < 1 || n > 240) err(`compra "${r.name}" com número de parcelas inválido`);
       if (!isValidMonth(r.firstMonth)) err(`compra "${r.name}" com mês da 1ª parcela inválido`);
       if (!isStr(r.cardId)) err(`compra "${r.name}" sem cartão`);
-    }
+      if (r.startNumber != null) {
+        const s = Number(r.startNumber);
+        if (!Number.isInteger(s) || s < 1 || s > n) err(`compra "${r.name}" com parcela inicial inválida`);
+      }
+    },
+    fix: (r) => { if (r.startNumber == null) r.startNumber = 1; }
   },
   installments: {
     check: (r, err) => {

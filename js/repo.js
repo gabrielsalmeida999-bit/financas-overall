@@ -779,6 +779,65 @@ export async function createPurchase(data, opts = {}) {
 }
 
 /**
+ * Cadastro retroativo: compra parcelada iniciada antes do uso do app, cujas
+ * parcelas anteriores já foram pagas na vida real e NÃO entram no histórico
+ * (o usuário decidiu não registrá-las). Só gera parcelas a partir da parcela
+ * atual (inclusive) em diante, começando no mês corrente.
+ *
+ * Ex.: 10 parcelas, "estamos na 4" -> cria só 4..10, a 4ª cai neste mês.
+ * O total (10) é preservado para exibição ("4 de 10"), mesmo só existindo
+ * 7 registros no banco.
+ */
+export async function createRetroactivePurchase(data, opts = {}) {
+  const name = requireText(data.name, 'o nome da despesa');
+  const installmentAmount = requireAmount(data.installmentAmount, 'o valor da parcela');
+  const cardId = data.cardId;
+  if (!cardId) throw new ValidationError('Selecione o cartão.');
+  const card = await db.get('creditCards', cardId);
+  if (!card || !live(card)) throw new ValidationError('Cartão não encontrado.');
+
+  const total = Math.floor(Number(data.installmentsCount) || 1);
+  if (!Number.isInteger(total) || total < 1 || total > 72) {
+    throw new ValidationError('Número de parcelas deve estar entre 1 e 72.');
+  }
+  const currentNumber = Math.floor(Number(data.currentNumber) || 1);
+  if (!Number.isInteger(currentNumber) || currentNumber < 1 || currentNumber > total) {
+    throw new ValidationError('A parcela atual deve estar entre 1 e o total de parcelas.');
+  }
+
+  const firstMonth = addMonths(currentMonth(), -(currentNumber - 1));
+  const purchaseDate = todayISO();
+  const slots = total - currentNumber + 1;
+  const totalAmount = installmentAmount * total;
+
+  const key = dedupeKey('retro', name, installmentAmount, cardId, total, currentNumber);
+  await guardDuplicate('creditPurchases', key, opts.force);
+
+  const purchase = {
+    id: uid('pur'),
+    cardId, name,
+    totalAmount,
+    installmentsCount: total,
+    startNumber: currentNumber, // marca até onde o histórico foi deliberadamente omitido
+    firstMonth,
+    purchaseDate,
+    categoryId: data.categoryId || null,
+    note: optText(data.note),
+    dedupeKey: key,
+    ...baseFields()
+  };
+  const installments = buildInstallments(purchase, card, currentNumber, installmentAmount * slots);
+
+  await tx(['creditPurchases', 'installments'], 'readwrite', async (s) => {
+    await reqp(s.creditPurchases.add(purchase));
+    for (const inst of installments) await reqp(s.installments.add(inst));
+  });
+
+  log('purchase.create.retroactive', { installments: installments.length, startNumber: currentNumber });
+  return { purchase, installments };
+}
+
+/**
  * Edição de compra parcelada.
  * Parcelas PAGAS nunca são alteradas nem apagadas silenciosamente.
  * Só as parcelas pendentes são recalculadas, e a soma continua fechando
@@ -792,6 +851,9 @@ export async function updatePurchase(id, data) {
   const paid = current.filter((i) => i.status === STATUS.PAID);
   const paidTotal = sum(paid, (i) => i.amount);
   const highestPaid = paid.reduce((m, i) => Math.max(m, i.number), 0);
+  // Cadastro retroativo: parcelas abaixo de startNumber nunca existiram de
+  // propósito (histórico omitido). Editar não pode tentar recriá-las.
+  const floorNumber = Math.max(highestPaid, (purchase.startNumber || 1) - 1);
 
   const next = { ...purchase };
   if (data.name !== undefined) next.name = requireText(data.name, 'a descrição da compra');
@@ -802,9 +864,9 @@ export async function updatePurchase(id, data) {
   if (data.installmentsCount !== undefined) {
     const n = Math.floor(Number(data.installmentsCount) || 1);
     if (!Number.isInteger(n) || n < 1 || n > 72) throw new ValidationError('Número de parcelas deve estar entre 1 e 72.');
-    if (n < highestPaid) {
+    if (n < floorNumber) {
       throw new ValidationError(
-        `Esta compra já possui a parcela ${highestPaid} paga. O número de parcelas não pode ser menor que ${highestPaid}.`
+        `Esta compra já possui a parcela ${floorNumber} paga ou registrada. O número de parcelas não pode ser menor que ${floorNumber}.`
       );
     }
     next.installmentsCount = n;
@@ -814,7 +876,7 @@ export async function updatePurchase(id, data) {
   }
 
   const remaining = next.totalAmount - paidTotal;
-  const rebuilt = buildInstallments(next, card, highestPaid + 1, remaining);
+  const rebuilt = buildInstallments(next, card, floorNumber + 1, remaining);
   const rebuiltIds = new Set(rebuilt.map((i) => i.id));
   const toRemove = current.filter((i) => i.status !== STATUS.PAID && !rebuiltIds.has(i.id));
 

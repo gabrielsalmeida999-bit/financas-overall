@@ -5,7 +5,7 @@
    ========================================================================== */
 
 const APP_VERSION = '1.0.0';
-const CACHE = `overall-financas-app-v${APP_VERSION}-8`;
+const CACHE = `overall-financas-app-v${APP_VERSION}-9`;
 
 const APP_SHELL = [
   './',

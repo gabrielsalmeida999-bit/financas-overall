@@ -222,6 +222,64 @@ async function run() {
     restantes.length === 1 && restantes[0].status === repo.STATUS.PAID,
     `${restantes.length} restante(s)`);
 
+  /* ------------------- Cadastro de despesas retroativas ------------------- */
+  grupo('Cadastro de despesas retroativas');
+
+  await limparBase();
+  const cardRetro = await repo.createCard({ name: 'Cartão Antigo', limit: 500000, closingDay: 20, dueDay: 5 });
+  const hoje = core.currentMonth();
+
+  // 10 parcelas, já pagas 3 (fora do sistema) -> estamos na 4ª
+  const retro = await repo.createRetroactivePurchase({
+    name: 'Notebook antigo', cardId: cardRetro.id, installmentAmount: 20000,
+    installmentsCount: 10, currentNumber: 4
+  });
+  check('Cria só as parcelas restantes (4 a 10 = 7)', retro.installments.length === 7,
+    `${retro.installments.length}`);
+  check('Não cria nenhuma parcela com número menor que 4',
+    retro.installments.every((i) => i.number >= 4));
+  check('Numeração real preservada (4/10 até 10/10)',
+    retro.installments[0].number === 4 && retro.installments[0].total === 10 &&
+    retro.installments[6].number === 10);
+  check('Cada parcela vale exatamente o valor informado (sem arredondamento)',
+    retro.installments.every((i) => i.amount === 20000));
+  check('Parcela atual (4ª) cai neste mês', retro.installments[0].month === hoje,
+    `${retro.installments[0].month} vs ${hoje}`);
+  check('Nenhuma parcela paga foi criada (histórico antigo não entra)',
+    retro.installments.every((i) => i.status === repo.STATUS.PENDING));
+
+  const resumoRetro = await repo.purchaseSummary(retro.purchase.id);
+  check('Resumo mostra 7 parcelas no banco, mas total real é 10',
+    resumoRetro.installments.length === 7 && retro.purchase.installmentsCount === 10);
+
+  const invoiceRetro = await repo.cardInvoice(cardRetro.id, hoje);
+  check('Fatura deste mês mostra a parcela "4 de 10"',
+    invoiceRetro.items.some((i) => i.name === 'Notebook antigo' && i.subtitle === 'Parcela 4 de 10'),
+    JSON.stringify(invoiceRetro.items.map((i) => `${i.name} | ${i.subtitle}`)));
+
+  // Proteção: editar depois não pode recriar as parcelas 1-3 (nunca existiram de propósito)
+  await repo.updatePurchase(retro.purchase.id, { installmentsCount: 12 });
+  const aposEditar = await repo.listInstallmentsOf(retro.purchase.id);
+  check('Editar não recria parcelas anteriores à retroativa',
+    aposEditar.every((i) => i.number >= 4), `menor número: ${Math.min(...aposEditar.map(i=>i.number))}`);
+  check('Editar aumenta corretamente até a nova quantidade',
+    aposEditar.length === 9 && Math.max(...aposEditar.map((i) => i.number)) === 12,
+    `${aposEditar.length} parcelas, máx ${Math.max(...aposEditar.map((i) => i.number))}`);
+
+  let reduziuAbaixoDoInicio = false;
+  try { await repo.updatePurchase(retro.purchase.id, { installmentsCount: 2 }); reduziuAbaixoDoInicio = true; } catch (_) {}
+  check('Não permite reduzir abaixo da parcela inicial retroativa', !reduziuAbaixoDoInicio);
+
+  // Caso "estamos na 1" == igual a uma compra nova normal
+  const retroNova = await repo.createRetroactivePurchase({
+    name: 'Compra recente', cardId: cardRetro.id, installmentAmount: 5000,
+    installmentsCount: 3, currentNumber: 1
+  });
+  check('Com "estamos na 1", cria todas as parcelas (igual compra nova)',
+    retroNova.installments.length === 3);
+  check('Primeira parcela cai neste mês quando currentNumber=1',
+    retroNova.installments[0].month === hoje);
+
   /* ---------------------------- Despesas fixas --------------------------- */
   grupo('Despesas fixas (recorrência)');
 

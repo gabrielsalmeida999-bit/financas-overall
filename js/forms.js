@@ -666,6 +666,97 @@ export async function purchaseForm(existing = null, defaults = {}) {
   return result;
 }
 
+/* ==================== Cadastro de despesas retroativas =================== */
+/*
+   Uso único/inicial: compra parcelada que já estava em andamento antes do
+   usuário começar a usar o app. Não registra histórico das parcelas já
+   pagas — só cria a partir da parcela atual em diante, a começar neste mês.
+*/
+
+export async function retroactivePurchaseForm() {
+  const cards = await cardOptions();
+  if (!cards.length) {
+    toastErr('Cadastre um cartão antes de usar o cadastro retroativo.');
+    return null;
+  }
+  const cats = await categoryOptions('expense');
+
+  const preview = el('div.card.mt-2', { style: { background: 'var(--card-2)', border: 'none' } });
+  let formRef = null;
+
+  const updatePreview = () => {
+    if (!formRef) return;
+    const v = formRef.values();
+    const total = Math.max(1, Math.min(72, Number(v.installmentsCount) || 1));
+    const current = Math.max(1, Math.min(total, Number(v.currentNumber) || 1));
+    preview.replaceChildren();
+    if (!v.installmentAmount) {
+      preview.append(el('div.small.muted', { text: 'Informe o valor da parcela para ver a prévia.' }));
+      return;
+    }
+    const firstMonth = addMonths(currentMonth(), -(current - 1));
+    preview.append(el('div.section-title', {
+      text: `Serão criadas as parcelas ${current} a ${total} (${total - current + 1}x)`
+    }));
+    const list = el('div.mt-2');
+    const show = Math.min(total - current + 1, 4);
+    for (let i = 0; i < show; i++) {
+      const num = current + i;
+      list.append(el('div.summary-line', {}, [
+        el('span.k', { text: `${monthLabel(addMonths(firstMonth, num - 1))} — ${num}/${total}` }),
+        el('span.v', { text: money(v.installmentAmount) })
+      ]));
+    }
+    if (total - current + 1 > show) {
+      list.append(el('div.summary-line', {}, [
+        el('span.k', { text: `… até ${monthLabel(addMonths(firstMonth, total - 1))}` }),
+        el('span.v', { text: money(v.installmentAmount) })
+      ]));
+    }
+    preview.append(list);
+    preview.append(el('div.tiny.muted.mt-2', {
+      text: current > 1
+        ? `As parcelas 1 a ${current - 1} (já pagas antes) não entram no histórico do app.`
+        : 'Nenhuma parcela anterior — igual a lançar uma compra nova.'
+    }));
+  };
+
+  const result = openForm({
+    title: 'Cadastro de Despesas Retroativas',
+    submitLabel: 'Cadastrar',
+    initial: { installmentsCount: 1, currentNumber: 1 },
+    fields: [
+      { name: 'name', type: 'text', label: 'Nome da despesa', required: true, placeholder: 'Ex.: Notebook', autofocus: true },
+      { name: 'cardId', type: 'select', label: 'Cartão', required: true, options: cards },
+      { name: 'installmentAmount', type: 'money', label: 'Valor da parcela', required: true, onInput: updatePreview },
+      { name: 'installmentsCount', type: 'number', label: 'Total de parcelas', required: true, min: 1, max: 72, onInput: updatePreview },
+      {
+        name: 'currentNumber', type: 'number', label: 'Em qual parcela estamos', required: true, min: 1, max: 72,
+        hint: 'Ex.: se já foram pagas 3 de 10, digite 4. As 3 anteriores não entram no histórico.',
+        onInput: updatePreview
+      },
+      { name: 'categoryId', type: 'select', label: 'Categoria', options: cats },
+      { name: 'note', type: 'textarea', label: 'Observação', placeholder: 'Opcional' }
+    ],
+    extra: preview,
+    onReady: (api) => { formRef = api; updatePreview(); },
+    onSubmit: async (v, { force }) => {
+      if (v.currentNumber > v.installmentsCount) {
+        throw new ValidationError('A parcela atual não pode ser maior que o total de parcelas.', 'currentNumber');
+      }
+      const r = await repo.createRetroactivePurchase({
+        name: v.name, cardId: v.cardId, installmentAmount: v.installmentAmount,
+        installmentsCount: v.installmentsCount, currentNumber: v.currentNumber,
+        categoryId: v.categoryId || null, note: v.note
+      }, { force });
+      toastOk(`Cadastrado — ${r.installments.length} parcela(s) a partir deste mês`);
+      return true;
+    }
+  });
+
+  return result;
+}
+
 /* ================================ Dívida ================================= */
 
 export async function debtForm(existing = null) {
