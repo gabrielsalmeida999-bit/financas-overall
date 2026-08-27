@@ -626,7 +626,11 @@ export async function purchaseForm(existing = null, defaults = {}) {
     extra: preview,
     onReady: (api) => {
       formRef = api;
-      if (!isEdit && !api.get('firstMonth')) syncFirstMonth();
+      // O campo "mês" sempre nasce preenchido com o mês atual (nunca fica
+      // vazio de verdade), então não dá pra usar "está vazio?" como sinal de
+      // "ainda não calculei a sugestão". Sempre recalcula ao abrir; syncFirstMonth
+      // já não faz nada em modo de edição.
+      syncFirstMonth();
       updatePreview();
     },
     onSubmit: async (v, { force }) => {

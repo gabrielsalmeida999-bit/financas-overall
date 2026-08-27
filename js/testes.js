@@ -152,6 +152,24 @@ async function run() {
   const card = await repo.createCard({ name: 'Cartão Teste', limit: 1000000, closingDay: 20, dueDay: 5 });
   check('Cartão criado', !!card.id);
 
+  // Vencimento no mesmo mês do fechamento (ex.: fecha 19, paga 25).
+  const cardMesmoMes = { closingDay: 19, dueDay: 25 };
+  check('Compra antes do fechamento sugere o mês atual',
+    repo.suggestFirstMonth(cardMesmoMes, '2026-08-18') === '2026-08');
+  check('Compra no dia do fechamento ainda conta como "antes"',
+    repo.suggestFirstMonth(cardMesmoMes, '2026-08-19') === '2026-08');
+  check('Compra depois do fechamento sugere o mês seguinte',
+    repo.suggestFirstMonth(cardMesmoMes, '2026-08-20') === '2026-09');
+  check('Compra bem depois do fechamento também sugere o mês seguinte',
+    repo.suggestFirstMonth(cardMesmoMes, '2026-08-27') === '2026-09');
+
+  // Vencimento no mês seguinte ao fechamento (ex.: fecha 20, paga 5 do mês que vem).
+  const cardMesSeguinte = { closingDay: 20, dueDay: 5 };
+  check('Fechamento com vencimento no mês seguinte: antes do fechamento paga 1 mês à frente',
+    repo.suggestFirstMonth(cardMesSeguinte, '2026-08-10') === '2026-09');
+  check('Fechamento com vencimento no mês seguinte: depois do fechamento paga 2 meses à frente',
+    repo.suggestFirstMonth(cardMesSeguinte, '2026-08-25') === '2026-10');
+
   const c1 = await repo.createPurchase({
     cardId: card.id, name: 'Notebook', totalAmount: 90000,
     installmentsCount: 3, purchaseDate: '2026-08-10', firstMonth: '2026-08'
