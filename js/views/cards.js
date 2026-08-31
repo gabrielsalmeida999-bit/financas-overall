@@ -274,9 +274,15 @@ export async function openPurchase(purchase, ctx) {
 
   body.append(el('button.btn.btn-primary.btn-block.mt-4', {
     type: 'button', text: 'Editar compra',
-    onclick: () => { s.close(null); setTimeout(() => purchaseForm(purchase), 240); }
+    onclick: () => s.close('edit')
   }));
 
-  const s = sheet({ title: purchase.name, body, size: 'tall' });
+  // Abre a edição só quando esta tela realmente terminou de fechar (via onClose),
+  // em vez de torcer pra um tempo fixo ser suficiente — evita a corrida entre
+  // a animação de fechamento e a abertura da próxima tela.
+  const s = sheet({
+    title: purchase.name, body, size: 'tall',
+    onClose: (result) => { if (result === 'edit') purchaseForm(purchase); }
+  });
   return s;
 }

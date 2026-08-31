@@ -306,10 +306,7 @@ export async function openDetail(item, ctx, month) {
 
   actions.append(el('button.btn.btn-primary.btn-block', {
     type: 'button', text: 'Editar',
-    onclick: async () => {
-      s.close(null);
-      setTimeout(() => editItem(item, month), 240);
-    }
+    onclick: () => s.close('edit')
   }));
 
   if (item.type === 'debtPayment') {
@@ -330,7 +327,12 @@ export async function openDetail(item, ctx, month) {
     }));
   }
 
-  const s = sheet({ title: item.name, body: el('div', {}, [rows, actions]) });
+  // Abre a edição só quando esta tela realmente terminou de fechar (via onClose),
+  // em vez de um tempo fixo correndo contra a animação de fechamento.
+  const s = sheet({
+    title: item.name, body: el('div', {}, [rows, actions]),
+    onClose: (result) => { if (result === 'edit') editItem(item, month); }
+  });
   return s;
 }
 

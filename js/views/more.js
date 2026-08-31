@@ -163,16 +163,25 @@ export async function openDebt(debtId, ctx) {
   const actions = el('div.mt-4', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
     s.remaining > 0 ? el('button.btn.btn-primary.btn-block', {
       type: 'button', text: '+ Registrar pagamento',
-      onclick: () => { sh.close(null); setTimeout(() => debtPaymentForm(d), 240); }
+      onclick: () => sh.close('payment')
     }) : null,
     el('button.btn.btn-ghost.btn-block', {
       type: 'button', text: 'Editar dívida',
-      onclick: () => { sh.close(null); setTimeout(() => debtForm(d), 240); }
+      onclick: () => sh.close('edit')
     })
   ].filter(Boolean));
   body.append(actions);
 
-  const sh = sheet({ title: d.person, body, size: 'tall' });
+  // Abre o próximo formulário só quando esta tela realmente terminou de
+  // fechar (via onClose), em vez de um tempo fixo correndo contra a
+  // animação de fechamento.
+  const sh = sheet({
+    title: d.person, body, size: 'tall',
+    onClose: (result) => {
+      if (result === 'payment') debtPaymentForm(d);
+      else if (result === 'edit') debtForm(d);
+    }
+  });
   return sh;
 }
 
