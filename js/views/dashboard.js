@@ -114,6 +114,19 @@ export async function render(root, ctx) {
         }));
       }
     }
+
+    // Linha informativa à parte: soma de TODAS as despesas fixas (soltas + no
+    // cartão), pra quem quer ver o compromisso fixo total. Fica fora da barra
+    // proporcional de propósito — somar ela junto faria a barra ultrapassar
+    // 100% do total de gastos (o valor do cartão já a inclui).
+    const totalFixasComCartao = t.fixed + (t.cardSubscriptions || 0);
+    if (t.cardSubscriptions > 0) {
+      compCard.append(el('div.divider'));
+      compCard.append(el('div.summary-line', {}, [
+        el('span.k', { text: 'Total de despesas fixas (fora + no cartão)' }),
+        el('span.v', { text: money(totalFixasComCartao) })
+      ]));
+    }
   }
   root.append(section('Composição dos gastos', compCard));
 
