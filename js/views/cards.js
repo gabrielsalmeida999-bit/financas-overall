@@ -7,7 +7,7 @@ import {
 } from '../core.js';
 
 import {
-  el, section, listItem, emptyState, statusBadge, sheet, toastOk,
+  el, section, listItem, emptyState, statusBadge, badge, sheet, toastOk,
   confirm, progressBar, detailRow, summaryLine, emit
 } from '../ui.js';
 
@@ -161,12 +161,18 @@ async function openInvoice(card, month, ctx) {
     } else {
       const list = el('div.list.mt-3');
       for (const item of invoice.items) {
+        // Selinho de parcela (2/5) fica separado do nome pra nunca ser cortado
+        // quando a descrição da compra é comprida.
+        const badges = el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'flex-end', marginTop: '2px' } }, [
+          item.kind !== 'fixed' ? badge(`${item.ref.number}/${item.ref.total}`) : null,
+          statusBadge(item.status)
+        ].filter(Boolean));
         list.append(listItem({
           icon: item.status === STATUS.PAID ? '✓' : (item.kind === 'fixed' ? '📌' : '💳'),
           title: item.name,
-          subtitle: `${item.subtitle} · vence ${formatDate(item.dueDate)}`,
+          subtitle: `vence ${formatDate(item.dueDate)}`,
           amount: item.amount,
-          badge: statusBadge(item.status),
+          badge: badges,
           onClick: async () => {
             const next = item.status === STATUS.PAID ? STATUS.PENDING : STATUS.PAID;
             if (item.kind === 'fixed') await repo.setExpenseStatus(item.id, next);

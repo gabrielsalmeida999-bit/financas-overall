@@ -7,7 +7,7 @@ import {
 } from '../core.js';
 
 import {
-  el, section, listItem, emptyState, statusBadge, sheet, toastOk,
+  el, section, listItem, emptyState, statusBadge, badge, sheet, toastOk,
   confirm, segmented, chips, detailRow, emit, once, summaryLine
 } from '../ui.js';
 
@@ -166,16 +166,19 @@ export async function render(root, ctx) {
       const list = el('div.list.mt-3');
       for (const item of sorted) {
         const cat = item.categoryId ? cats.get(item.categoryId) : null;
+        // Nome puro da compra (sem "N/T" grudado): nomes compridos cortam o
+        // título com reticências, e a parcela sumia junto. Agora ela vira um
+        // selinho à parte, num espaço que nunca é cortado.
+        const isInstallment = item.type === 'installment';
+        const title = isInstallment ? item.ref.name : item.name;
         list.append(listItem({
           icon: iconFor(item, cat),
           iconColor: cat ? cat.color : null,
-          title: item.name,
+          title,
           subtitle: subtitleFor(item, cat),
           amount: item.amount,
           amountClass: 'out',
-          badge: item.status === STATUS.PENDING
-            ? statusBadge('pending', item.date < todayISO())
-            : null,
+          badge: installmentBadges(item),
           onClick: () => openDetail(item, ctx, month)
         }));
       }
@@ -254,6 +257,22 @@ function subtitleFor(item, cat) {
   else parts.push(item.ref.kind === 'fixed' ? 'Despesa fixa' : repo.paymentMethodLabel(item.ref.paymentMethod));
   if (cat) parts.push(cat.name);
   return parts.join(' · ');
+}
+
+/**
+ * Selinhos do lado direito de um item do grupo de cartão: número da parcela
+ * (sempre visível, mesmo com nome comprido) + situação, quando pendente.
+ */
+function installmentBadges(item) {
+  const parts = [];
+  if (item.type === 'installment') {
+    parts.push(badge(`${item.ref.number}/${item.ref.total}`));
+  }
+  if (item.status === STATUS.PENDING) {
+    parts.push(statusBadge('pending', item.date < todayISO()));
+  }
+  if (!parts.length) return null;
+  return el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'flex-end', marginTop: '2px' } }, parts);
 }
 
 /* ============================== Detalhe ================================== */

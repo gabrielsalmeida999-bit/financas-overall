@@ -9,7 +9,7 @@ import {
 
 import {
   el, section, stat, listItem, emptyState, banner, progressBar,
-  statusBadge, toastOk, hexAlpha, emit
+  statusBadge, badge, toastOk, hexAlpha, emit
 } from '../ui.js';
 
 import * as repo from '../repo.js';
@@ -164,12 +164,19 @@ export async function render(root, ctx) {
   } else {
     for (const item of next) {
       const overdue = item.date < todayISO();
+      const isInstallment = item.type === 'installment';
+      const badges = el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'flex-end', marginTop: '2px' } }, [
+        isInstallment ? badge(`${item.ref.number}/${item.ref.total}`) : null,
+        overdue ? statusBadge('pending', true) : null
+      ].filter(Boolean));
       upcomingCard.append(listItem({
-        icon: item.type === 'installment' ? '💳' : '📌',
-        title: item.name,
-        subtitle: `${formatDateShort(item.date)} · ${item.type === 'installment' ? 'Parcela' : 'Despesa'}`,
+        icon: isInstallment ? '💳' : '📌',
+        // Nome puro (sem "N/T" grudado): nomes compridos cortavam o título
+        // antes de mostrar a parcela. Agora ela é um selinho à parte.
+        title: isInstallment ? item.ref.name : item.name,
+        subtitle: `${formatDateShort(item.date)} · ${isInstallment ? 'Parcela' : 'Despesa'}`,
         amount: item.amount,
-        badge: overdue ? statusBadge('pending', true) : null,
+        badge: (isInstallment || overdue) ? badges : null,
         onClick: () => openUpcoming(item, ctx)
       }));
     }
